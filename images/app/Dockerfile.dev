@@ -74,6 +74,9 @@ CMD cd /opt/talkyard/app/ && exec /opt/typesafe-activator/bin/activator \
   -Dcom.sun.management.jmxremote.authenticate=false \
   -Dhttp.port=9000 \
   -Dhttps.port=9443 \
+  # Do not use the proxy when contacting the 'web' host (nginx),
+  # otherwise we run into issues when connecting to the PubSub component.
+  -Dhttp.nonProxyHosts='web|localhost|127.*|[::1]' \
   # SSL has security flaws. Use TLS instead. [NOSSL] [PROTOCONF]
   -Ddeployment.security.SSLv2Hello=false \
   -Ddeployment.security.SSLv3=false \
