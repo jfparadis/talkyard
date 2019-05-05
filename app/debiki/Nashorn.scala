@@ -20,14 +20,13 @@ package debiki
 import com.debiki.core._
 import com.debiki.core.Prelude._
 import java.{io => jio}
-import javax.{script => js}
+import org.graalvm.{polyglot => graalvm}
 import debiki.onebox.{InstantOneboxRendererForNashorn, Onebox}
 import org.apache.lucene.util.IOUtils
 import play.api.Play
 import scala.concurrent.Future
 import scala.util.Try
 import Nashorn._
-import jdk.nashorn.api.scripting.ScriptObjectMirror
 import org.scalactic.{Bad, ErrorMessage, Good, Or}
 import scala.collection.mutable.ArrayBuffer
 
@@ -57,14 +56,9 @@ class Nashorn(globals: Globals) {
 
   /** The Nashorn Javascript engine isn't thread safe.  */
   private val javascriptEngines =
-    new java.util.concurrent.LinkedBlockingDeque[js.ScriptEngine](999)
+    new java.util.concurrent.LinkedBlockingDeque[Option[graalvm.Context]](999)
 
-  private val BrokenEngine = new js.AbstractScriptEngine() {
-    override def eval(script: String, context: js.ScriptContext): AnyRef = null
-    override def eval(reader: jio.Reader, context: js.ScriptContext): AnyRef = null
-    override def getFactory: js.ScriptEngineFactory = null
-    override def createBindings(): js.Bindings = null
-  }
+  private val BrokenEngine = None
 
   @volatile private var firstCreateEngineError: Option[Throwable] = None
 
@@ -167,7 +161,7 @@ class Nashorn(globals: Globals) {
         }
         return
     }
-    javascriptEngines.putLast(engine)
+    javascriptEngines.putLast(Some(engine))
   }
 
 
@@ -180,12 +174,13 @@ class Nashorn(globals: Globals) {
   }
 
 
-  private def renderPageImpl[R](engine: js.Invocable, reactStoreJsonString: String)
+  private def renderPageImpl[R](engine: graalvm.Context, reactStoreJsonString: String)
         : String Or ErrorMessage = {
     val timeBefore = System.currentTimeMillis()
 
-    val htmlOrError = engine.invokeFunction(
-      "renderReactServerSide", reactStoreJsonString, cdnOrigin.getOrElse("")).asInstanceOf[String]
+
+    val htmlOrError = engine.getBindings("js").getMember("renderReactServerSide")
+      .execute(reactStoreJsonString, cdnOrigin.getOrElse("")).asString
     if (htmlOrError.startsWith(ErrorRenderingReact)) {
       logger.error(s"Error rendering page with React server side [DwE5KGW2]")
       return Bad(htmlOrError)
@@ -217,44 +212,41 @@ class Nashorn(globals: Globals) {
       // The onebox renderer needs a Javascript engine to sanitize html (via Caja JsHtmlSanitizer)
       // and we'll reuse `engine` so we won't have to create any additional engine.
       oneboxRenderer.javascriptEngine = Some(engine)
-      val resultObj: Object = engine.invokeFunction("renderAndSanitizeCommonMark", commonMarkSource,
+      val result: graalvm.Value = engine.getBindings("js").getMember("renderAndSanitizeCommonMark").execute(
+          commonMarkSource,
           true.asInstanceOf[Object], // allowClassIdDataAttrs.asInstanceOf[Object],
           followLinks.asInstanceOf[Object],
-          oneboxRenderer, uploadsUrlPrefix)
+          oneboxRenderer,
+          uploadsUrlPrefix)
       oneboxRenderer.javascriptEngine = None
 
-      val result: ScriptObjectMirror = resultObj match {
-        case scriptObjectMirror: ScriptObjectMirror =>
-          scriptObjectMirror
-        case errorDetails: ErrorMessage =>
-          // Don't use Die — the stack trace to here isn't interesting? Instead, it's the
-          // errorDetails from the inside-Nashorn exception that matters.
-          debiki.EdHttp.throwInternalError(
-            "TyERCMEX", "Error rendering CommonMark, server side in Nashorn", errorDetails)
-        case unknown =>
-          die("TyERCMR01", s"Bad class: ${classNameOf(unknown)}, thing as string: ``$unknown''")
+      if (result.isString) {
+        // Don't use Die — the stack trace to here isn't interesting? Instead, it's the
+        // errorDetails from the inside-Nashorn exception that matters.
+        debiki.EdHttp.throwInternalError(
+          "TyERCMEX", "Error rendering CommonMark, server side in Nashorn", result.asString)
+      } else if (!result.hasMembers) {
+        die("TyERCMR01", s"Bad class: ${classNameOf(result)}, thing as string: ``$result''")
       }
 
-      dieIf(!result.isArray, "TyERCMR02", "Not an array")
-      dieIf(!result.hasSlot(0), "TyERCMR03A", "No slot 0")
-      dieIf(!result.hasSlot(1), "TyERCMR03B", "No slot 1")
-      dieIf(result.hasSlot(2), "TyERCMR03C", "Has slot 2")
+      dieIf(!result.hasArrayElements, "TyERCMR02", "Not an array")
+      dieIf(result.getArraySize != 2, "TyERCMR03D", "Array of size != 2")
 
-      val elem0 = result.getSlot(0)
-      dieIf(!elem0.isInstanceOf[String], "TyERCMR04", s"Bad safeHtml class: ${classNameOf(elem0)}")
-      val safeHtml = elem0.asInstanceOf[String]
+      val elem0 = result.getArrayElement(0)
+      dieIf(!elem0.isString, "TyERCMR04", s"Bad safeHtml class: ${classNameOf(elem0)}")
+      val safeHtml = elem0.asString
 
-      val elem1 = result.getSlot(1)
-      dieIf(!elem1.isInstanceOf[ScriptObjectMirror],
+      val elem1 = result.getArrayElement(1)
+      dieIf(!elem1.hasArrayElements,
           "TyERCMR05", s"Bad mentionsArray class: ${classNameOf(elem1)}")
-      val mentionsArrayMirror = elem1.asInstanceOf[ScriptObjectMirror]
+      val mentionsArrayMirror = elem1
 
       val mentions = ArrayBuffer[String]()
       var nextSlotIx = 0
-      while (mentionsArrayMirror.hasSlot(nextSlotIx)) {
-        val elem = mentionsArrayMirror.getSlot(nextSlotIx)
-        dieIf(!elem.isInstanceOf[String], "TyERCMR06", s"Bad mention class: ${classNameOf(elem)}")
-        mentions.append(elem.asInstanceOf[String])
+      while (nextSlotIx < mentionsArrayMirror.getArraySize) {
+        val elem = mentionsArrayMirror.getArrayElement(nextSlotIx)
+        dieIf(!elem.isString, "TyERCMR06", s"Bad mention class: ${classNameOf(elem)}")
+        mentions.append(elem.asString)
         nextSlotIx += 1
       }
 
@@ -274,13 +266,13 @@ class Nashorn(globals: Globals) {
 
 
   def sanitizeHtmlReuseEngine(text: String, followLinks: Boolean,
-        javascriptEngine: Option[js.Invocable]): String = {
+        javascriptEngine: Option[graalvm.Context]): String = {
     if (isTestSoDisableScripts)
       return "Scripts disabled [EsM44GY0]"
-    def sanitizeWith(engine: js.Invocable): String = {
-      val safeHtml = engine.invokeFunction(
-          "sanitizeHtmlServerSide", text, followLinks.asInstanceOf[Object])
-      safeHtml.asInstanceOf[String]
+    def sanitizeWith(engine: graalvm.Context): String = {
+      val safeHtml = engine.getBindings("js").getMember("sanitizeHtmlServerSide")
+        .execute(text, followLinks.asInstanceOf[Object])
+      safeHtml.asString
     }
     javascriptEngine match {
       case Some(engine) =>
@@ -297,13 +289,13 @@ class Nashorn(globals: Globals) {
     if (isTestSoDisableScripts)
       return "scripts-disabled-EsM28WXP45"
     withJavascriptEngine(engine => {
-      val slug = engine.invokeFunction("debikiSlugify", title)
-      slug.asInstanceOf[String]
+      val slug = engine.getBindings("js").getMember("debikiSlugify").execute(title)
+      slug.asString
     })
   }
 
 
-  private def withJavascriptEngine[R](fn: (js.Invocable) => R): R = {
+  private def withJavascriptEngine[R](fn: (graalvm.Context) => R): R = {
     dieIf(isTestSoDisableScripts, "EsE4YUGw")
 
     def threadId = Thread.currentThread.getId
@@ -322,29 +314,32 @@ class Nashorn(globals: Globals) {
       // Don't: Future { createOneMoreJavascriptEngine() }
     }
 
-    val engine = javascriptEngines.takeFirst()
+    val maybeEngine = javascriptEngines.takeFirst()
 
     if (mightBlock) {
       logger.debug(s"...Thread $threadName (id $threadId) got a JS engine.")
-      if (engine eq BrokenEngine) {
+      if (maybeEngine eq BrokenEngine) {
         logger.debug(s"...But it is broken; I'll throw an error. [DwE4KEWV52]")
       }
     }
 
-    if (engine eq BrokenEngine) {
-      javascriptEngines.addFirst(engine)
-      die("DwE5KGF8", "Could not create Javascript engine; cannot render page",
-        firstCreateEngineError getOrDie "DwE4KEW20")
-    }
-
-    try fn(engine.asInstanceOf[js.Invocable])
-    finally {
-      javascriptEngines.addFirst(engine)
+    maybeEngine match {
+      case Some(engine) => {
+        try fn(engine)
+        finally {
+          javascriptEngines.addFirst(maybeEngine)
+        }
+      }
+      case None => {
+        javascriptEngines.addFirst(maybeEngine)
+        die("DwE5KGF8", "Could not create Javascript engine; cannot render page",
+          firstCreateEngineError getOrDie "DwE4KEW20")
+      }
     }
   }
 
 
-  private def makeJavascriptEngine(): js.ScriptEngine = {
+  private def makeJavascriptEngine(): graalvm.Context = {
     val timeBefore = System.currentTimeMillis()
     def threadId = java.lang.Thread.currentThread.getId
     def threadName = java.lang.Thread.currentThread.getName
@@ -355,7 +350,7 @@ class Nashorn(globals: Globals) {
     // Pass 'null' so that a class loader that finds the Nashorn extension will be used.
     // Otherwise the Nashorn engine won't be found and `newEngine` will be null.
     // See: https://github.com/playframework/playframework/issues/2532
-    val newEngine = new js.ScriptEngineManager(null).getEngineByName("nashorn")
+    val newEngine = graalvm.Context.newBuilder("js").allowAllAccess(true).build
     val scriptBuilder = new StringBuilder
 
     scriptBuilder.append(i"""
@@ -487,7 +482,8 @@ class Nashorn(globals: Globals) {
       }
     }
 
-    newEngine.eval(script)
+    val scriptSource = graalvm.Source.newBuilder("js", script, "setup").buildLiteral
+    newEngine.eval(scriptSource)
 
     def timeElapsed = System.currentTimeMillis() - timeBefore
     logger.debug(o"""... Done initializing Nashorn engine, took: $timeElapsed ms,
@@ -519,13 +515,13 @@ class Nashorn(globals: Globals) {
   }
 
 
-  private def warmupJavascriptEngine(engine: js.ScriptEngine) {
+  private def warmupJavascriptEngine(engine: graalvm.Context) {
     logger.debug(o"""Warming up Nashorn engine...""")
     val timeBefore = System.currentTimeMillis()
     // Warming up with three laps seems enough, almost all time is spent in at lap 1.
     for (i <- 1 to 3) {
       val timeBefore = System.currentTimeMillis()
-      renderPageImpl(engine.asInstanceOf[js.Invocable], WarmUpReactStoreJsonString)
+      renderPageImpl(engine, WarmUpReactStoreJsonString)
       def timeElapsed = System.currentTimeMillis() - timeBefore
       logger.info(o"""Warming up Nashorn engine, lap $i done, took: $timeElapsed ms""")
     }

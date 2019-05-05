@@ -21,7 +21,7 @@ import com.debiki.core._
 import com.debiki.core.Prelude._
 import debiki.{Globals, Nashorn}
 import debiki.onebox.engines._
-import javax.{script => js}
+import org.graalvm.{polyglot => graalvm}
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 import scala.concurrent.{ExecutionContext, Future}
@@ -78,7 +78,7 @@ abstract class OneboxEngine(globals: Globals, val nashorn: Nashorn) {
     uploadsLinkRegex.replaceAllIn(safeHtml, s"""="$prefix$$1"""")
   }
 
-  final def loadRenderSanitize(url: String, javascriptEngine: Option[js.Invocable])
+  final def loadRenderSanitize(url: String, javascriptEngine: Option[graalvm.Context])
         : Future[String] = {
     def sanitizeAndWrap(html: String): String = {
       var safeHtml =
@@ -157,7 +157,7 @@ class Onebox(val globals: Globals, val nashorn: Nashorn) {
     new GiphyOnebox(globals, nashorn),
     new YouTubeOnebox(globals, nashorn))
 
-  def loadRenderSanitize(url: String, javascriptEngine: Option[js.Invocable])
+  def loadRenderSanitize(url: String, javascriptEngine: Option[graalvm.Context])
         : Future[String] = {
     for (engine <- engines) {
       if (engine.handles(url))
@@ -167,7 +167,7 @@ class Onebox(val globals: Globals, val nashorn: Nashorn) {
   }
 
 
-  def loadRenderSanitizeInstantly(url: String, javascriptEngine: Option[js.Invocable])
+  def loadRenderSanitizeInstantly(url: String, javascriptEngine: Option[graalvm.Context])
         : RenderOnboxResult = {
     def placeholder = PlaceholderPrefix + nextRandomString()
 
@@ -203,7 +203,7 @@ class InstantOneboxRendererForNashorn(val oneboxes: Onebox) {
   // Should be set to the Nashorn engine that calls this class, so that we can call
   // back out to the same engine, when sanitizing html, so we won't have to ask for
   // another engine, that'd create unnecessarily many engines.
-  var javascriptEngine: Option[js.Invocable] = None
+  var javascriptEngine: Option[graalvm.Context] = None
 
   def renderAndSanitizeOnebox(unsafeUrl: String): String = {
     lazy val safeUrl = org.owasp.encoder.Encode.forHtml(unsafeUrl)

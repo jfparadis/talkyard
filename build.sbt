@@ -97,7 +97,9 @@ val appDependencies = Seq(
   // CLEAN_UP remove Spec2 use only ScalaTest, need to edit some tests.
   "org.mockito" % "mockito-all" % "1.9.0" % "test", // I use Mockito with Specs2...
   "org.scalatest" %% "scalatest" % "3.0.5" % "test", // but prefer ScalaTest
-  "org.scalatestplus.play" %% "scalatestplus-play" % "3.1.2" % Test)
+  "org.scalatestplus.play" %% "scalatestplus-play" % "3.1.2" % Test,
+  // GraalVM SDK for GraalVM JavaScript integration
+  "org.graalvm.sdk" % "graal-sdk" % "19.0.0")
 
 
 val main = (project in file("."))
