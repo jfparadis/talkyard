@@ -54,6 +54,9 @@ class RateLimiter(globals: Globals, security: EdSecurity) {
 
 
   def rateLimit(rateLimits: RateLimits, request: DebikiRequest[_]) {
+    // Disable rate limits for benchmarking
+    return
+
     if (request.user.exists(_.isAdmin))
       return
 
