@@ -106,7 +106,7 @@ class Nashorn(globals: Globals) {
     // with a ready-made & warmed-up engine. Otherwise the server might seem extremely slow.
     // In Dev and Test, doesn't matter though, and better wait, because the engines are sometimes
     // not needed at all (e.g. in some test cases).
-    val numCreateDirectly = if (Globals.isProd) MinNumEngines else 0
+    val numCreateDirectly = MinNumEngines
     if (numCreateDirectly > 0) {
       val startMs = System.currentTimeMillis()
       logger.info(s"Creating $numCreateDirectly Javascript engines directly... [EdMJSENGDIRCT]")
@@ -119,9 +119,7 @@ class Nashorn(globals: Globals) {
     }
 
     Future {
-      val numEngines = - numCreateDirectly + (
-        if (Globals.isProd) math.max(MinNumEngines, Runtime.getRuntime.availableProcessors)
-        else MinNumEngines)
+      val numEngines = - numCreateDirectly +  math.max(MinNumEngines, Runtime.getRuntime.availableProcessors)
       val startMs = System.currentTimeMillis()
       logger.info(s"Creating $numEngines Javascript engines, async... [EdMJSENGSTART]")
       for (i <- 1 to numEngines) {
