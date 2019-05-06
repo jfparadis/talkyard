@@ -104,6 +104,8 @@ trait RenderedPageHtmlDao {
     // don't use the mem cache (which post to use as the root isn't incl in the cache key). [5V7ZTL2]
     useMemCache &= pageRequest.pageRoot.contains(PageParts.BodyNr)
 
+    // Bypass the cache for benchmarking
+    useMemCache = false
 
     val renderParams = PageRenderParams(
       widthLayout = if (pageRequest.isMobile) WidthLayout.Tiny else WidthLayout.Medium,
@@ -173,38 +175,38 @@ trait RenderedPageHtmlDao {
     // COULD reuse the caller's transaction, but the caller currently uses > 1  :-(
     // Or could even do this outside any transaction.
 
-    readOnlyTransaction { tx =>
-      tx.loadCachedPageContentHtml(pageId, renderParams) foreach { case (cachedHtml, cachedHtmlVersion) =>
+//    readOnlyTransaction { tx =>
+//      tx.loadCachedPageContentHtml(pageId, renderParams) foreach { case (cachedHtml, cachedHtmlVersion) =>
+//
+//        def versionsString = o"""render params: $renderParams,
+//          db cache version: ${cachedHtmlVersion.computerString}
+//          current version: ${currentReactStoreJsonVersion.computerString}"""
+//
+//        // Here we can compare hash sums of the up-to-date data and the data that was
+//        // used to generate the cached page. We ignore page version and site version.
+//        // Hash sums are always correct, so we'll never rerender unless we actually need to.
+//        if (cachedHtmlVersion.appVersion != currentReactStoreJsonVersion.appVersion ||
+//            cachedHtmlVersion.reactStoreJsonHash != currentReactStoreJsonVersion.reactStoreJsonHash) {
+//          // The browser will make cachedhtml up-to-date by running React.js with up-to-date
+//          // json, so it's okay to return cachedHtml. However, we'd rather send up-to-date
+//          // html, and this page is being accessed, so regenerate html. [4KGJW2]
+//          p.Logger.debug(o"""s$siteId: Page $pageId requested, db cache stale,
+//               will rerender soon, $versionsString [TyMRENDRSOON]""")
+//          // COULD wait 150 ms for the background thread to finish rendering the page?
+//          // Then timeout and return the old cached page.
+//          globals.renderPageContentInBackground(SitePageId(siteId, pageId), Some(
+//              PageRenderParamsAndHash(renderParams, currentReactStoreJsonVersion.reactStoreJsonHash)))
+//        }
+//        else {
+//          p.Logger.trace(o"""s$siteId: Page found in db cache, reusing: $pageId,
+//              $versionsString [TyMREUSEDB]""")
+//        }
+//        return (cachedHtml, cachedHtmlVersion)
+//      }
+//    }
 
-        def versionsString = o"""render params: $renderParams,
-          db cache version: ${cachedHtmlVersion.computerString}
-          current version: ${currentReactStoreJsonVersion.computerString}"""
-
-        // Here we can compare hash sums of the up-to-date data and the data that was
-        // used to generate the cached page. We ignore page version and site version.
-        // Hash sums are always correct, so we'll never rerender unless we actually need to.
-        if (cachedHtmlVersion.appVersion != currentReactStoreJsonVersion.appVersion ||
-            cachedHtmlVersion.reactStoreJsonHash != currentReactStoreJsonVersion.reactStoreJsonHash) {
-          // The browser will make cachedhtml up-to-date by running React.js with up-to-date
-          // json, so it's okay to return cachedHtml. However, we'd rather send up-to-date
-          // html, and this page is being accessed, so regenerate html. [4KGJW2]
-          p.Logger.debug(o"""s$siteId: Page $pageId requested, db cache stale,
-               will rerender soon, $versionsString [TyMRENDRSOON]""")
-          // COULD wait 150 ms for the background thread to finish rendering the page?
-          // Then timeout and return the old cached page.
-          globals.renderPageContentInBackground(SitePageId(siteId, pageId), Some(
-              PageRenderParamsAndHash(renderParams, currentReactStoreJsonVersion.reactStoreJsonHash)))
-        }
-        else {
-          p.Logger.trace(o"""s$siteId: Page found in db cache, reusing: $pageId,
-              $versionsString [TyMREUSEDB]""")
-        }
-        return (cachedHtml, cachedHtmlVersion)
-      }
-    }
-
-    p.Logger.trace(o"""s$siteId: Page not in db cache: $pageId, rendering now..., version:
-        ${currentReactStoreJsonVersion.computerString} [TyMRENDRNOW]""")
+//    p.Logger.trace(o"""s$siteId: Page not in db cache: $pageId, rendering now..., version:
+//        ${currentReactStoreJsonVersion.computerString} [TyMRENDRNOW]""")
 
     // Now we'll have to render the page contents [5KWC58], so we have some html to send back
     // to the client, in case the client is a search engine bot — I suppose those
@@ -215,10 +217,10 @@ trait RenderedPageHtmlDao {
         moreDetails = errorMessage)
     }
 
-    readWriteTransaction { tx =>
-      tx.upsertCachedPageContentHtml(
-          pageId, currentReactStoreJsonVersion, currentReactStoreJsonString, newHtml)
-    }
+//    readWriteTransaction { tx =>
+//      tx.upsertCachedPageContentHtml(
+//          pageId, currentReactStoreJsonVersion, currentReactStoreJsonString, newHtml)
+//    }
 
     (newHtml, currentReactStoreJsonVersion)
   }
