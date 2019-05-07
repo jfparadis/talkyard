@@ -1927,8 +1927,9 @@ trait UserDao {
 
 
   def loadUsersOnlineStuff(): UsersOnlineStuff = {
-    usersOnlineCache.get(siteId, new ju.function.Function[SiteId, UsersOnlineStuff] {
-      override def apply(dummySiteId: SiteId): UsersOnlineStuff = {
+    val cached = usersOnlineCache.getIfPresent(siteId)
+    if (cached == null) {
+      val computed = {
         val (userIdsInclSystem, numStrangers) = redisCache.loadOnlineUserIds()
         // If a superadmin is visiting the site (e.g. to help fixing a config error), don't  [EXCLSYS]
         // show hen in the online list — hen isn't a real member.
@@ -1941,7 +1942,11 @@ trait UserDao {
           usersJson = JsArray(users.map(JsX.JsUser)),
           numStrangers = numStrangers)
       }
-    })
+      usersOnlineCache.put(siteId, computed)
+      computed
+    } else {
+      cached
+    }
   }
 
 
