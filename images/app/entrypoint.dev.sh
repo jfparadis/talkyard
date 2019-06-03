@@ -17,7 +17,7 @@ if [ $? -eq 1 -a $file_owner_id -ne 0 ] ; then
   # We map /home/owner/.ivy and .sbt to the host user's .ivy and .sbt, in docker-compose.yml. [SBTHOME]
   # -D = don't assign password (would block Docker waiting for input).
   echo "Creating user 'owner' with id $file_owner_id..."
-  adduser -u $file_owner_id -h /home/owner/ -D owner
+  adduser --uid $file_owner_id --home /home/owner/ --disabled-password --gecos "User" owner
 else
   # Below this dir, sbt and Ivy will cache their files. [SBTHOME]
   mkdir -p /home/owner/
