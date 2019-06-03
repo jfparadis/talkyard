@@ -180,7 +180,7 @@ class Nashorn(globals: Globals) {
 
   private def renderPageImpl[R](engine: js.Invocable, reactStoreJsonString: String)
         : String Or ErrorMessage = {
-    val timeBefore = System.currentTimeMillis()
+    val timeBefore = System.nanoTime()
 
     val htmlOrError = engine.invokeFunction(
       "renderReactServerSide", reactStoreJsonString, cdnOrigin.getOrElse("")).asInstanceOf[String]
@@ -189,10 +189,10 @@ class Nashorn(globals: Globals) {
       return Bad(htmlOrError)
     }
 
-    def timeElapsed = System.currentTimeMillis() - timeBefore
+    def timeElapsed = System.nanoTime() - timeBefore
     def threadId = java.lang.Thread.currentThread.getId
     def threadName = java.lang.Thread.currentThread.getName
-    logger.trace(s"Done rendering: $timeElapsed ms, thread $threadName  (id $threadId)")
+    logger.trace(s"Done rendering: $timeElapsed ns, thread $threadName  (id $threadId)")
 
     Good(htmlOrError)
   }
