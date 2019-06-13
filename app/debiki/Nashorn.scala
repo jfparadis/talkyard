@@ -17,18 +17,23 @@
 
 package debiki
 
+import java.io.{BufferedWriter, FileWriter}
+
 import com.debiki.core._
 import com.debiki.core.Prelude._
 import java.{io => jio}
+
 import javax.{script => js}
 import debiki.onebox.{InstantOneboxRendererForNashorn, Onebox}
 import org.apache.lucene.util.IOUtils
 import play.api.Play
+
 import scala.concurrent.Future
 import scala.util.Try
 import Nashorn._
 import jdk.nashorn.api.scripting.ScriptObjectMirror
 import org.scalactic.{Bad, ErrorMessage, Good, Or}
+
 import scala.collection.mutable.ArrayBuffer
 
 
@@ -79,6 +84,16 @@ class Nashorn(globals: Globals) {
     this.oneboxes = Some(oneboxes)
   }
 
+  private val latencyFile = new BufferedWriter(new FileWriter("js-latencies.csv"))
+  private var latencyFileWrites = 0
+
+  private def logLatency(startTime: Long, finishTime: Long) {
+    latencyFile.write(s"$startTime,$finishTime\n")
+    latencyFileWrites = latencyFileWrites + 1
+    if (latencyFileWrites % 1000 == 0) {
+      latencyFile.flush()
+    }
+  }
 
   /** Bug: Apparently this reloads the Javascript code, but won't reload Java/Scala code
     * called from inside the JS code. This results in weird impossible things like
@@ -189,10 +204,12 @@ class Nashorn(globals: Globals) {
       return Bad(htmlOrError)
     }
 
-    def timeElapsed = System.nanoTime() - timeBefore
+    val timeAfter = System.nanoTime()
+    def timeElapsed = timeAfter - timeBefore
     def threadId = java.lang.Thread.currentThread.getId
     def threadName = java.lang.Thread.currentThread.getName
     logger.trace(s"Done rendering: $timeElapsed ns, thread $threadName  (id $threadId)")
+    logLatency(timeBefore / 1000, timeAfter / 1000)
 
     Good(htmlOrError)
   }
